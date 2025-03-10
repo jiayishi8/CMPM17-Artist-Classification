@@ -9,6 +9,15 @@ from pathlib import Path
 from PIL import Image
 import matplotlib.pyplot as plt
 from collections import Counter
+import torch.nn as nn
+import torch.optim as optim
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Flatten, Conv2D, MaxPooling2D, Dropout
+
+
 
 #dataset class
 class ArtDataset(Dataset):
@@ -127,3 +136,4 @@ train_loop(train_loader)
 
 print("Testing Data:")
 test_loop(test_loader)
+
