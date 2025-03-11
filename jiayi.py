@@ -1,23 +1,15 @@
 #This is Jiayi's code file
 
-import pandas as pd
 import os
 import torch
-from torchvision import transforms
+import torch.nn as nn
+import torch.optim as optim
+import torchvision.transforms as transforms
 from torch.utils.data import Dataset, DataLoader, random_split
 from pathlib import Path
 from PIL import Image
 import matplotlib.pyplot as plt
 from collections import Counter
-import torch.nn as nn
-import torch.optim as optim
-import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras import layers
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense, Flatten, Conv2D, MaxPooling2D, Dropout
-
-
 
 #dataset class
 class ArtDataset(Dataset):
@@ -86,54 +78,82 @@ train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
 train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
-# seeing if the split is done for each artisit or nah
-# counters for training & testing labels
-train_label_counts = Counter()
-test_label_counts = Counter()
-
-# loop trhu and count occurrences in training set
-for _, labels in train_loader:
-    train_label_counts.update(labels.numpy())
-
-# count occurrences in testing set
-for _, labels in test_loader:
-    test_label_counts.update(labels.numpy())
-
-# verify 80:20 ratio for each artist
-print()
-print("Checking 80:20 Split per Artist:")
-for label in sorted(train_label_counts.keys()):
-    train_count = train_label_counts[label]
-    test_count = test_label_counts[label]
-    total = train_count + test_count
+# define the model
+class ArtistClassifier(nn.Module):
+    def __init__(self, num_classes):
+        super(ArtistClassifier, self).__init__()
+        self.conv_layers = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2)
+        )
+        self.fc_layers = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(128 * 28 * 28, 256),
+            nn.ReLU(),
+            nn.Dropout(0.5),
+            nn.Linear(256, num_classes)
+        )
     
-    expected_train = int(0.8 * total)
-    expected_test = total - expected_train  # Should be ~20%
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = self.fc_layers(x)
+        return x
 
-    print(f"Artist {label}: Train={train_count}, Test={test_count}, Expected Train={expected_train}, Expected Test={expected_test}")
+# get number of artists
+num_classes = len(dataset.artist_to_idx)
+model = ArtistClassifier(num_classes)
 
+# define loss function and optimizer
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=0.001)
 
-# training loop
-def train_loop(dataloader):
-    for batch_idx, (images, labels) in enumerate(dataloader):
-        print(f"Batch {batch_idx}: ")
-        print(f"Inputs (Images Tensor): {images.shape}")
-        print(f"Outputs (Labels): {labels}")
+# training function
+def train_model(model, train_loader, criterion, optimizer, epochs=10):
+    model.train()
+    batch_idx = 1
+    for epoch in range(epochs):
+        total_loss = 0
+        for images, labels in train_loader:
+            optimizer.zero_grad()
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+        
+        print(f"Epoch [{epoch+1}/{epochs}], Loss: {total_loss/len(train_loader):.4f}")
         if batch_idx == 1:  # print only first 2 batches cuz rest would take too long (jsut seeing if works)
             break
 
-# testing loop
-def test_loop(dataloader):
-    for batch_idx, (images, labels) in enumerate(dataloader):
-        print(f"Batch {batch_idx}: ")
-        print(f"Inputs (Images Tensor): {images.shape}")
-        print(f"Outputs (Labels): {labels}")
-        if batch_idx == 1:
-            break
+# test function
+def test_model(model, test_loader):
+    model.eval()
+    correct = 0
+    total = 0
+    batch_idx = 1
+    with torch.no_grad():
+        for images, labels in test_loader:
+            outputs = model(images)
+            _, predicted = torch.max(outputs, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+            print("hellp")
+            accuracy = 100 * correct / total
+            print(accuracy)
+            if batch_idx == 1:  # print only first 2 batches cuz rest would take too long (jsut seeing if works)
+                break
+    
+    accuracy = 100 * correct / total
+    print(f'Test Accuracy: {accuracy:.2f}%')
 
-print("Training Data:")
-train_loop(train_loader)
-
-print("Testing Data:")
-test_loop(test_loader)
-
+# train and evaluate the model
+epochs = 1
+train_model(model, train_loader, criterion, optimizer, epochs)
+test_model(model, test_loader)
