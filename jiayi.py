@@ -10,7 +10,12 @@ from pathlib import Path
 from PIL import Image
 import matplotlib.pyplot as plt
 from collections import Counter
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import accuracy_score, ConfusionMatrixDisplay,precision_score,recall_score,f1_score
 
+
+
+#not using artist.csv anymore, all alternations and augmentations done to the file are dropped, since file is not being used anymore
 #dataset class
 class ArtDataset(Dataset):
     def __init__(self, root_dir, transform=None):
@@ -91,20 +96,22 @@ class ArtistClassifier(nn.Module):
             nn.MaxPool2d(kernel_size=2, stride=2),
             nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2)
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            nn.AdaptiveAvgPool2d(1)  # Dynamically adjusts spatial size
         )
         self.fc_layers = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(128 * 28 * 28, 256),
+            nn.Linear(128, 256),  # No need for 128 * 28 * 28 anymore
             nn.ReLU(),
             nn.Dropout(0.5),
             nn.Linear(256, num_classes)
         )
-    
+
     def forward(self, x):
         x = self.conv_layers(x)
         x = self.fc_layers(x)
         return x
+
 
 # get number of artists
 num_classes = len(dataset.artist_to_idx)
@@ -117,20 +124,23 @@ optimizer = optim.Adam(model.parameters(), lr=0.001)
 # training function
 def train_model(model, train_loader, criterion, optimizer, epochs=10):
     model.train()
-    batch_idx = 1
+    
     for epoch in range(epochs):
         total_loss = 0
-        for images, labels in train_loader:
+        for batch_idx, (images, labels) in enumerate(train_loader):
             optimizer.zero_grad()
             outputs = model(images)
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
-        
-        print(f"Epoch [{epoch+1}/{epochs}], Loss: {total_loss/len(train_loader):.4f}")
-        if batch_idx == 1:  # print only first 2 batches cuz rest would take too long (jsut seeing if works)
-            break
+
+            # prints loss every 10 batches instead of breaking
+            if batch_idx % 10 == 0:
+                print(f"Epoch [{epoch+1}/{epochs}], Batch [{batch_idx}/{len(train_loader)}], Loss: {loss.item():.4f}")
+
+        print(f"Epoch [{epoch+1}/{epochs}], Average Loss: {total_loss/len(train_loader):.4f}")
+
 
 # test function
 def test_model(model, test_loader):
@@ -147,13 +157,36 @@ def test_model(model, test_loader):
             print("hellp")
             accuracy = 100 * correct / total
             print(accuracy)
-            if batch_idx == 1:  # print only first 2 batches cuz rest would take too long (jsut seeing if works)
-                break
-    
+            
     accuracy = 100 * correct / total
     print(f'Test Accuracy: {accuracy:.2f}%')
 
 # train and evaluate the model
-epochs = 1
+epochs = 15
 train_model(model, train_loader, criterion, optimizer, epochs)
 test_model(model, test_loader)
+def compute_confusion_matrix(model, test_loader, class_names):
+    model.eval()
+    y_true = []
+    y_pred = []
+
+    with torch.no_grad():
+        for images, labels in test_loader:
+            outputs = model(images)
+            _, predicted = torch.max(outputs, 1)
+            y_true.extend(labels.cpu().numpy())
+            y_pred.extend(predicted.cpu().numpy())
+
+    # compute confusion matrix
+    cm = confusion_matrix(y_true, y_pred)
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=class_names)
+    
+    # plot confusion matrix
+    plt.figure(figsize=(10, 8))
+    disp.plot(cmap=plt.cm.Blues, values_format='d')
+    plt.xticks(rotation=45)
+    plt.title("Confusion Matrix")
+    plt.show()
+
+# call the function after training and testing
+compute_confusion_matrix(model, test_loader, list(dataset.artist_to_idx.keys()))
