@@ -71,6 +71,6 @@ def predict_artist(image_path, model):
     return predicted_artist
 
 # example Usage
-image_path = "mona_lisa.jpg"  #change image file
+image_path = "dove.jpg"  
 predicted_artist = predict_artist(image_path, model)
 print(f"Predicted Artist: {predicted_artist}")
