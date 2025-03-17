@@ -11,7 +11,7 @@ from collections import Counter
 from sklearn.metrics import confusion_matrix
 from sklearn.metrics import accuracy_score, ConfusionMatrixDisplay,precision_score,recall_score,f1_score
 
-if torch.cuda.is_available():
+if torch.cuda.is_available():           #checks if using cuda/cpu (sets device to it)
         device = 'cuda'
 else:
     device = 'cpu'
@@ -23,14 +23,16 @@ print(f"Using device: {device}")
 #dataset class
 class ArtDataset(Dataset):
     def __init__(self, root_dir, transform=None):
-        self.root_dir = Path(root_dir)
-        self.transform = transform
-        self.image_paths = []
-        self.labels = []
-        self.artist_to_idx = {}
+        self.root_dir = Path(root_dir)      #set the dataset directory
+        self.transform = transform          #data augmentation transformations
+        self.image_paths = []               #list to store image file paths
+        self.labels = []                    #list to store class labels (artists name --> img label)
+        self.artist_to_idx = {}             #dictionary mapping artist names to label indices
 
-        #refered to stackoverflow
-        # artist_folders = os.listdir(self.root_dir)
+        # refered to stackoverflow
+        # https://www.geeksforgeeks.org/python-os-listdir-method/
+        # https://stackoverflow.com/questions/22207936/how-to-find-files-and-skip-directories-in-os-listdir
+        # artist_folders = os.listdir(self.root_dir) --> doesn't work check for empty files/folders
         artist_folders = []  
         for folder in os.listdir(self.root_dir):  #go trhu the directory
             folder_path = self.root_dir / folder    #get the path
@@ -41,29 +43,29 @@ class ArtDataset(Dataset):
         # Van Gogh, Degas, and Picasso artwork tm --> max to 300
         max_images_per_artist = {"Vincent_van_Gogh": 300, "Edgar_Degas": 300, "Pablo_Picasso": 300}
         
-        for idx, artist in enumerate(artist_folders):       #go the the index and artist
+        for idx, artist in enumerate(artist_folders):       #assign a idx to each artist
             self.artist_to_idx[artist] = idx                
             image_files = os.listdir(self.root_dir / artist)        #get all the file
             
             if artist in max_images_per_artist:
-                image_files = image_files[:max_images_per_artist[artist]]           #limti the file
+                image_files = image_files[:max_images_per_artist[artist]]           #limti the amt of images if its the three lsited above
             
             for image in image_files:
                 self.image_paths.append(self.root_dir / artist / image)     #loops through each img file and stores path and its artist
                 self.labels.append(idx)
 
     def __len__(self):
-        return len(self.image_paths)
+        return len(self.image_paths)            # returns total dataset length
 
     def __getitem__(self, idx):
         img_path = self.image_paths[idx]            #get the img path given the idx
-        label = self.labels[idx]
-        image = Image.open(img_path).convert("RGB")
+        label = self.labels[idx]                    #get the label (artist name --> output basically)
+        image = Image.open(img_path).convert("RGB")             #get the path and open the image
         
         if self.transform:
-            image = self.transform(image)
-        image = image.to(device)
-        label = torch.tensor(label, dtype=torch.long, device=device)
+            image = self.transform(image)                   #apply the transformations
+        image = image.to(device)                            #use gpu
+        label = torch.tensor(label, dtype=torch.long, device=device)                #
         label = label.to(device)
         return image, label
 
@@ -75,11 +77,11 @@ transform = transforms.Compose([
     transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),  # color distortions
     transforms.RandomHorizontalFlip(p=0.5),  # flip images horizontally
     transforms.GaussianBlur(kernel_size=(5, 5), sigma=(0.1, 2.0)),  # Randm blurring
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  ])
+    transforms.ToTensor(),  #convert image to PyTorch tensor
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  ])     #https://pytorch.org/vision/main/generated/torchvision.transforms.Normalize.html
 
 # load dataset
-dataset = ArtDataset("images", transform=transform)
+dataset = ArtDataset("images", transform=transform)             #parses the dataset --> extracts all the data
 # dataset = torch.tensor(dataset, dtype=torch.float32, device=device)
 # dataset.to(device)
 
@@ -89,15 +91,18 @@ test_size = len(dataset) - train_size
 train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
 
 # create dataLoaders
+#batching in 32 --> standard
 train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
 
 # define the model
+# use ice cream method --> doing inflated numbers --> doesnt run on gpu + makes accuracy worse and model slower
+# 3 convolution layers
 class ArtistClassifier(nn.Module):
-    def __init__(self, num_classes):
+    def __init__(self, num_classes):                #50 artists traning and each of the 50 80:20
         super(ArtistClassifier, self).__init__()
         self.conv_layers = nn.Sequential(
-            nn.Conv2d(3, 64, kernel_size=3, padding=1),
+            nn.Conv2d(3, 64, kernel_size=3, padding=1),         #start from 3 bc RGB
             nn.ReLU(),
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.ReLU(),
@@ -115,11 +120,11 @@ class ArtistClassifier(nn.Module):
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),
         )
-        self.fc_layers = nn.Sequential(
+        self.fc_layers = nn.Sequential(          #flatten and linearize the size
             nn.Flatten(),
             nn.Linear(32 * 28 * 28, 1024),
             nn.ReLU(),
-            #nn.Dropout(0.5),
+            #nn.Dropout(0.5),         # dont do dropout its not overfitting
             nn.Linear(1024, num_classes)
         )
 
@@ -130,13 +135,15 @@ class ArtistClassifier(nn.Module):
 
 
 # get number of artists
-num_classes = len(dataset.artist_to_idx)
-model = ArtistClassifier(num_classes)
+num_classes = len(dataset.artist_to_idx)            
+model = ArtistClassifier(num_classes)       
 model.to(device)
+
 # define loss function and optimizer
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
+#saving model path 
 MODEL_PATH = "artist_classifier.pth"
 
 # training function
@@ -176,7 +183,6 @@ def test_model(model, test_loader):
             _, predicted = torch.max(outputs, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
-            print("hellp")
             accuracy = 100 * correct / total
             print(accuracy)
             
@@ -188,6 +194,7 @@ epochs = 15
 train_model(model, train_loader, criterion, optimizer, epochs)
 test_model(model, test_loader)
 
+
 def load_trained_model(model_path, num_classes):
     model = ArtistClassifier(num_classes)
     model.load_state_dict(torch.load(model_path, map_location=device))
@@ -196,5 +203,5 @@ def load_trained_model(model_path, num_classes):
     print("Model loaded successfully!")
     return model
 
-# Load the trained model
+# load the trained model
 trained_model = load_trained_model(MODEL_PATH, num_classes)
