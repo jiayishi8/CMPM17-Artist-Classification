@@ -8,6 +8,15 @@ from pathlib import Path
 from PIL import Image
 import matplotlib.pyplot as plt
 from collections import Counter
+from sklearn.metrics import confusion_matrix
+from sklearn.metrics import accuracy_score, ConfusionMatrixDisplay,precision_score,recall_score,f1_score
+
+if torch.cuda.is_available():
+        device = 'cuda'
+else:
+    device = 'cpu'
+    
+print(f"Using device: {device}")
 
 
 #not using artist.csv anymore, all alternations and augmentations done to the file are dropped, since file is not being used anymore
@@ -53,7 +62,9 @@ class ArtDataset(Dataset):
         
         if self.transform:
             image = self.transform(image)
-        
+        image = image.to(device)
+        label = torch.tensor(label, dtype=torch.long, device=device)
+        label = label.to(device)
         return image, label
 
 
@@ -64,10 +75,13 @@ transform = transforms.Compose([
     transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),  # color distortions
     transforms.RandomHorizontalFlip(p=0.5),  # flip images horizontally
     transforms.GaussianBlur(kernel_size=(5, 5), sigma=(0.1, 2.0)),  # Randm blurring
-    transforms.ToTensor()
-])
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])  ])
+
 # load dataset
 dataset = ArtDataset("images", transform=transform)
+# dataset = torch.tensor(dataset, dtype=torch.float32, device=device)
+# dataset.to(device)
 
 # split into train and test sets (80/20 split)
 train_size = int(0.8 * len(dataset))
@@ -83,54 +97,71 @@ class ArtistClassifier(nn.Module):
     def __init__(self, num_classes):
         super(ArtistClassifier, self).__init__()
         self.conv_layers = nn.Sequential(
-            nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(3, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
+
+            nn.Conv2d(128, 256, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.Conv2d(256, 128, kernel_size=3, padding=1),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),
-            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1),
+
+            nn.Conv2d(128, 64, kernel_size=3, padding=1),
             nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2)
+            nn.Conv2d(64, 32, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
         )
         self.fc_layers = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(128 * 28 * 28, 256),
+            nn.Linear(32 * 28 * 28, 1024),
             nn.ReLU(),
-            nn.Dropout(0.5),
-            nn.Linear(256, num_classes)
+            #nn.Dropout(0.5),
+            nn.Linear(1024, num_classes)
         )
-    
+
     def forward(self, x):
         x = self.conv_layers(x)
         x = self.fc_layers(x)
         return x
 
+
 # get number of artists
 num_classes = len(dataset.artist_to_idx)
 model = ArtistClassifier(num_classes)
-
+model.to(device)
 # define loss function and optimizer
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 
+MODEL_PATH = "artist_classifier.pth"
+
 # training function
 def train_model(model, train_loader, criterion, optimizer, epochs=10):
     model.train()
-    batch_idx = 1
+    
     for epoch in range(epochs):
         total_loss = 0
-        for images, labels in train_loader:
+        for batch_idx, (images, labels) in enumerate(train_loader):
+            images, labels = images.to(device), labels.to(device)
             optimizer.zero_grad()
             outputs = model(images)
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
-        
-        print(f"Epoch [{epoch+1}/{epochs}], Loss: {total_loss/len(train_loader):.4f}")
-        if batch_idx == 1:  # print only first 2 batches cuz rest would take too long (jsut seeing if works)
-            break
+
+            # prints loss every 10 batches instead of breaking
+            if batch_idx % 10 == 0:
+                print(f"Epoch [{epoch+1}/{epochs}], Batch [{batch_idx}/{len(train_loader)}], Loss: {loss.item():.4f}")
+
+        print(f"Epoch [{epoch+1}/{epochs}], Average Loss: {total_loss/len(train_loader):.4f}")
+
+    torch.save(model.state_dict(), MODEL_PATH)
+    print(f"Model saved to {MODEL_PATH}")
 
 # test function
 def test_model(model, test_loader):
@@ -140,6 +171,7 @@ def test_model(model, test_loader):
     batch_idx = 1
     with torch.no_grad():
         for images, labels in test_loader:
+            images, labels = images.to(device), labels.to(device)
             outputs = model(images)
             _, predicted = torch.max(outputs, 1)
             total += labels.size(0)
@@ -147,13 +179,22 @@ def test_model(model, test_loader):
             print("hellp")
             accuracy = 100 * correct / total
             print(accuracy)
-            if batch_idx == 1:  # print only first 2 batches cuz rest would take too long (jsut seeing if works)
-                break
-    
+            
     accuracy = 100 * correct / total
     print(f'Test Accuracy: {accuracy:.2f}%')
 
 # train and evaluate the model
-epochs = 1
+epochs = 15
 train_model(model, train_loader, criterion, optimizer, epochs)
 test_model(model, test_loader)
+
+def load_trained_model(model_path, num_classes):
+    model = ArtistClassifier(num_classes)
+    model.load_state_dict(torch.load(model_path, map_location=device))
+    model.to(device)
+    model.eval()
+    print("Model loaded successfully!")
+    return model
+
+# Load the trained model
+trained_model = load_trained_model(MODEL_PATH, num_classes)
