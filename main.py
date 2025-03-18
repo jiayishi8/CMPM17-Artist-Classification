@@ -129,7 +129,7 @@ class ArtistClassifier(nn.Module):
         )
 
     def forward(self, x):
-        x = self.conv_layers(x)
+        x = self.conv_layers(x)                 #apply both layers in forward pass
         x = self.fc_layers(x)
         return x
 
@@ -140,8 +140,8 @@ model = ArtistClassifier(num_classes)
 model.to(device)
 
 # define loss function and optimizer
-criterion = nn.CrossEntropyLoss()
-optimizer = optim.Adam(model.parameters(), lr=0.001)
+criterion = nn.CrossEntropyLoss()                   #cross entropy bc classfication task
+optimizer = optim.Adam(model.parameters(), lr=0.001)        #standard learning rate
 
 #saving model path 
 MODEL_PATH = "artist_classifier.pth"
@@ -152,14 +152,14 @@ def train_model(model, train_loader, criterion, optimizer, epochs=10):
     
     for epoch in range(epochs):
         total_loss = 0
-        for batch_idx, (images, labels) in enumerate(train_loader):
+        for batch_idx, (images, labels) in enumerate(train_loader):         #go thru the training loop
             images, labels = images.to(device), labels.to(device)
-            optimizer.zero_grad()
-            outputs = model(images)
-            loss = criterion(outputs, labels)
-            loss.backward()
+            optimizer.zero_grad()           #optimizer 
+            outputs = model(images)         #run the model and get an ouput
+            loss = criterion(outputs, labels)           #get the loss
+            loss.backward()                 #backward pass and optimizer step
             optimizer.step()
-            total_loss += loss.item()
+            total_loss += loss.item()           #to count loss
 
             # prints loss every 10 batches instead of breaking
             if batch_idx % 10 == 0:
@@ -167,22 +167,23 @@ def train_model(model, train_loader, criterion, optimizer, epochs=10):
 
         print(f"Epoch [{epoch+1}/{epochs}], Average Loss: {total_loss/len(train_loader):.4f}")
 
-    torch.save(model.state_dict(), MODEL_PATH)
+    torch.save(model.state_dict(), MODEL_PATH)     #save the state      
     print(f"Model saved to {MODEL_PATH}")
 
 # test function
+# no_grad: https://pytorch.org/docs/stable/generated/torch.no_grad.html
 def test_model(model, test_loader):
     model.eval()
     correct = 0
     total = 0
     batch_idx = 1
-    with torch.no_grad():
+    with torch.no_grad():    #
         for images, labels in test_loader:
             images, labels = images.to(device), labels.to(device)
-            outputs = model(images)
-            _, predicted = torch.max(outputs, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
+            outputs = model(images)                 
+            _, predicted = torch.max(outputs, 1)            #finds the predicted class by selecting the index with the highest probability from outputs
+            total += labels.size(0)         #incremeneted by batch size
+            correct += (predicted == labels).sum().item()           #updated with the number of correctly predicted labels
             accuracy = 100 * correct / total
             print(accuracy)
             
@@ -194,12 +195,13 @@ epochs = 15
 train_model(model, train_loader, criterion, optimizer, epochs)
 test_model(model, test_loader)
 
-
+#refer to week 9 slides --> just made a funciton to save the model
+#eval: https://www.geeksforgeeks.org/what-does-model-eval-do-in-pytorch/
 def load_trained_model(model_path, num_classes):
     model = ArtistClassifier(num_classes)
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.to(device)
-    model.eval()
+    model.eval()                #
     print("Model loaded successfully!")
     return model
 
